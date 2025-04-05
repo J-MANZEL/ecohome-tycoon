@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EcoHome Tycoon 3D</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: Arial, sans-serif;
+      background-color: #f0f0f0;
+      overflow: hidden;
+    }
+    #game-container {
+      position: relative;
+      width: 100vw;
+      height: 100vh;
+    }
+    canvas {
+      display: block;
+    }
+    #ui-panel {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      width: 200px;
+      background-color: rgba(255, 255, 255, 0.8);
+      border-radius: 5px;
+      padding: 10px;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    }
+    .resource-bar {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 10px;
+      font-weight: bold;
+    }
+    .building-btn {
+      display: block;
+      width: 100%;
+      padding: 8px;
+      margin-bottom: 5px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      text-align: left;
+    }
+    .building-btn:hover {
+      background-color: #45a049;
+    }
+    .status {
+      margin-top: 10px;
+      padding: 5px;
+      background-color: #f9f9f9;
+      border-radius: 3px;
+      font-size: 12px;
+      min-height: 40px;
+    }
+    h3 {
+      margin-top: 10px;
+      margin-bottom: 5px;
+    }
+    .game-actions {
+      margin-top: 10px;
+    }
+    .action-btn {
+      width: 100%;
+      padding: 8px;
+      margin-bottom: 5px;
+      background-color: #2196F3;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .action-btn:hover {
+      background-color: #0b7dda;
+    }
+    #bike-energy-modal {
+      display: none;
+      position: fixed;
+      z-index: 1;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.4);
+    }
+    .modal-content {
+      background-color: #fefefe;
+      margin: 15% auto;
+      padding: 20px;
+      border: 1px solid #888;
+      width: 300px;
+      border-radius: 5px;
+      text-align: center;
+    }
+    #bike-slider {
+      width: 100%;
+      margin: 20px 0;
+    }
+    .bike-buttons {
+      display: flex;
+      justify-content: space-between;
+    }
+    .bike-btn {
+      padding: 8px 15px;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    .close-btn {
+      background-color: #f44336;
+    }
+  </style>
+</head>
+<body>
+  <div id="game-container">
+    <canvas id="game-canvas"></canvas>
+    
+    <div id="ui-panel">
+      <div class="resource-bar">
+        <span>Money:</span>
+        <span id="money-display">$10,000</span>
+      </div>
+      <div class="resource-bar">
+        <span>Energy:</span>
+        <span id="energy-display">100/100</span>
+      </div>
+      <div class="resource-bar">
+        <span>Day:</span>
+        <span id="day-display">1</span>
+      </div>
+      
+      <h3>Buildings</h3>
+      <button class="building-btn" data-type="house">Eco House ($2000)</button>
+      <button class="building-btn" data-type="solar">Solar Panel ($500)</button>
+      <button class="building-btn" data-type="wind">Wind Turbine ($1000)</button>
+      <button class="building-btn" data-type="battery">Battery ($1500)</button>
+      <button class="building-btn" data-type="bike">Energy Bike ($300)</button>
+      
+      <div class="game-actions">
+        <button id="next-day-btn" class="action-btn">Next Day</button>
+        <button id="reset-btn" class="action-btn">Reset Game</button>
+      </div>
+      
+      <div class="status">
+        <p id="status-message">Welcome to EcoHome Tycoon! Select a building to place.</p>
+      </div>
+    </div>
+  </div>
+  
+  <!-- Bike Energy Modal -->
+  <div id="bike-energy-modal">
+    <div class="modal-content">
+      <h3>Pedal Your Energy Bike</h3>
+      <p>Adjust the pedaling intensity:</p>
+      <input type="range" min="1" max="10" value="5" id="bike-slider">
+      <p id="bike-energy-value">Energy: 0.5 kWh</p>
+      <div class="bike-buttons">
+        <button id="bike-cancel" class="bike-btn close-btn">Cancel</button>
+        <button id="bike-confirm" class="bike-btn">Generate Energy</button>
+      </div>
+    </div>
+  </div>
+  
+  <script>
+    // Game constants
+    const GRID_SIZE = 32;
+    const MAP_WIDTH = 20;
+    const MAP_HEIGHT = 15;
+    const ISOMETRIC_FACTOR = 0.5; // Height factor for isometric view
+    
+    // Game state
+    let gameState = {
+      money: 10000,
+      energy: {
+        current: 100,
+        max: 100,
+        production: 0,
+        consumption: 0
+      },
+      day: 1,
+      buildings: [],
+      bikeEnergy: 0 // Energy accumulated from biking
+    };
+    
+    // Building definitions
+    const buildings = {
+      house: {
+        name: "Eco House",
+        cost: 2000,
+        energy: -8,
+        income: 50,
+        color: "#3cb371", // medium sea green
+        height: 2 // Units tall for 3D effect
+      },
+      solar: {
+        name: "Solar Panel",
+        cost: 500,
+        energy: 5,
+        income: 0,
+        color: "#4169e1", // royal blue
+        height: 0.5
+      },
+      wind: {
+        name: "Wind Turbine",
+        cost: 1000,
+        energy: 10,
+        income: 0,
+        color: "#1e90ff", // dodger blue
+        height: 3
+      },
+      battery: {
+        name: "Battery",
+        cost: 1500,
+        energy: 0,
+        storage: 50,
+        income: 0,
+        color: "#ffd700", // gold
+        height: 1
+      },
+      bike: {
+        name: "Energy Bike",
+        cost: 300,
+        energy: 0,  // Base energy (will be added through pedaling)
+        income: 0,
+        color: "#ff6347", // tomato
+        height: 1,
+        interactive: true
+      }
+    };
+    
+    // Terrain types
+    const terrainTypes = {
+      grass: { 
+        color: "#7cfc00",
+        colorDark: "#5eb300" // Darker shade for side
+      },
+      desert: { 
+        color: "#f4a460",
+        colorDark: "#c47c43"
+      },
+      water: { 
+        color: "#1e90ff",
+        colorDark: "#1258a1"
+      },
+      forest: { 
+        color: "#228b22",
+        colorDark: "#175b17"
+      }
+    };
+    
+    // Game variables
+    let canvas, ctx;
+    let mapData = [];
+    let selectedBuilding = null;
+    let mouseGridX = 0;
+    let mouseGridY = 0;
+    let bikeModalActive = false;
+    let activeBikeX = -1;
+    let activeBikeY = -1;
+    
+    // Initialize the game
+    function init() {
+      // Set up canvas
+      canvas = document.getElementById('game-canvas');
+      ctx = canvas.getContext('2d');
+      
+      // Set canvas size
+      resize();
+      window.addEventListener('resize', resize);
+      
+      // Generate map
+      generateMap();
+      
+      // Set up event listeners
+      canvas.addEventListener('mousemove', handleMouseMove);
+      canvas.addEventListener('click', handleClick);
+      
+      // Set up UI events
+      document.querySelectorAll('.building-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const type = btn.getAttribute('data-type');
+          selectBuilding(type);
+        });
+      });
+      
+      document.getElementById('next-day-btn').addEventListener('click', simulateDay);
+      document.getElementById('reset-btn').addEventListener('click', resetGame);
+      
+      // Bike modal events
+      document.getElementById('bike-slider').addEventListener('input', updateBikeEnergy);
+      document.getElementById('bike-cancel').addEventListener('click', closeBikeModal);
+      document.getElementById('bike-confirm').addEventListener('click', confirmBikeEnergy);
+      
+      // Start game loop
+      gameLoop();
+      
+      // Update displays
+      updateDisplays();
+    }
+    
+    // Resize canvas
+    function resize() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    
+    // Generate a random terrain map
+    function generateMap() {
+      for (let y = 0; y < MAP_HEIGHT; y++) {
+        mapData[y] = [];
+        for (let x = 0; x < MAP_WIDTH; x++) {
+          // Generate random terrain (biased towards grass)
+          let terrainType;
+          const rand = Math.random();
+          
+          if (rand < 0.1) {
+            terrainType = 'water';
+          } else if (rand < 0.2) {
+            terrainType = 'desert';
+          } else if (rand < 0.4) {
+            terrainType = 'forest';
+          } else {
+            terrainType = 'grass';
+          }
+          
+          mapData[y][x] = {
+            terrain: terrainType,
+            building: null,
+            height: 0.2 + Math.random() * 0.1 // Slight height variation for terrain
+          };
+        }
+      }
+    }
+    
+    // Main game loop
+    function gameLoop() {
+      // Clear the canvas
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // Draw the map
+      drawMap();
+      
+      // Draw building preview
+      if (selectedBuilding && !bikeModalActive) {
+        drawBuildingPreview();
+      }
+      
+      // Request next frame
+      requestAnimationFrame(gameLoop);
+    }
+    
+    // Convert grid coordinates to isometric screen coordinates
+    function gridToScreen(x, y, z = 0) {
+      const baseX = canvas.width / 2; // Center point
+      const baseY = 150; // Top offset
+      
+      // Isometric projection
+      const screenX = baseX + (x - y) * GRID_SIZE / 2;
+      const screenY = baseY + (x + y) * GRID_SIZE / 2 * ISOMETRIC_FACTOR - z * GRID_SIZE / 2;
+      
+      return { x: screenX, y: screenY };
+    }
+    
+    // Convert screen coordinates to grid coordinates
+    function screenToGrid(screenX, screenY) {
+      const baseX = canvas.width / 2;
+      const baseY = 150;
+      
+      // Adjust screen coordinates relative to origin
+      const relX = screenX - baseX;
+      const relY = screenY - baseY;
+      
+      // Convert to grid (inverse of isometric projection)
+      const isoY = relY / (GRID_SIZE / 2 * ISOMETRIC_FACTOR);
+      const isoX = relX / (GRID_SIZE / 2) + isoY;
+      
+      const gridX = Math.floor((isoX + isoY) / 2);
+      const gridY = Math.floor((isoY - isoX) / 2);
+      
+      return { x: gridX, y: gridY };
+    }
+    
+    // Draw an isometric tile with 3D effect
+    function drawIsometricTile(x, y, height, fillColor, darkColor) {
+      const basePos = gridToScreen(x, y);
+      const topPos = gridToScreen(x, y, height);
+      
+      // Calculate the four corners of the top face
+      const topLeft = { 
+        x: topPos.x - GRID_SIZE / 2, 
+        y: topPos.y 
+      };
+      const topRight = { 
+        x: topPos.x + GRID_SIZE / 2, 
+        y: topPos.y 
+      };
+      const bottomLeft = { 
+        x: topPos.x - GRID_SIZE / 2, 
+        y: topPos.y + GRID_SIZE * ISOMETRIC_FACTOR 
+      };
+      const bottomRight = { 
+        x: topPos.x + GRID_SIZE / 2, 
+        y: topPos.y + GRID_SIZE * ISOMETRIC_FACTOR 
+      };
+      
+      // Calculate base corners
+      const baseTopLeft = { 
+        x: basePos.x - GRID_SIZE / 2, 
+        y: basePos.y 
+      };
+      const baseTopRight = { 
+        x: basePos.x + GRID_SIZE / 2, 
+        y: basePos.y 
+      };
+      const baseBottomLeft = { 
+        x: basePos.x - GRID_SIZE / 2, 
+        y: basePos.y + GRID_SIZE * ISOMETRIC_FACTOR 
+      };
+      const baseBottomRight = { 
+        x: basePos.x + GRID_SIZE / 2, 
+        y: basePos.y + GRID_SIZE * ISOMETRIC_FACTOR 
+      };
+      
+      // Draw the top face
+      ctx.fillStyle = fillColor;
+      ctx.beginPath();
+      ctx.moveTo(topLeft.x, topLeft.y);
+      ctx.lineTo(topRight.x, topRight.y);
+      ctx.lineTo(bottomRight.x, bottomRight.y);
+      ctx.lineTo(bottomLeft.x, bottomLeft.y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.2)';
+      ctx.stroke();
+      
+      // Draw the right face
+      ctx.fillStyle = darkColor || adjustColorBrightness(fillColor, -30);
+      ctx.beginPath();
+      ctx.moveTo(bottomRight.x, bottomRight.y);
+      ctx.lineTo(topRight.x, topRight.y);
+      ctx.lineTo(baseTopRight.x, baseTopRight.y);
+      ctx.lineTo(baseBottomRight.x, baseBottomRight.y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.2)';
+      ctx.stroke();
+      
+      // Draw the left face if visible
+      ctx.fillStyle = darkColor || adjustColorBrightness(fillColor, -15);
+      ctx.beginPath();
+      ctx.moveTo(bottomLeft.x, bottomLeft.y);
+      ctx.lineTo(topLeft.x, topLeft.y);
+      ctx.lineTo(baseTopLeft.x, baseTopLeft.y);
+      ctx.lineTo(baseBottomLeft.x, baseBottomLeft.y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.2)';
+      ctx.stroke();
+    }
+    
+    // Helper to darken or lighten a color
+    function adjustColorBrightness(hex, percent) {
+      // Convert hex to RGB
+      let r = parseInt(hex.substr(1, 2), 16);
+      let g = parseInt(hex.substr(3, 2), 16);
+      let b = parseInt(hex.substr(5, 2), 16);
+      
+      // Adjust brightness
+      r = Math.max(0, Math.min(255, r + percent));
+      g = Math.max(0, Math.min(255, g + percent));
+      b = Math.max(0, Math.min(255, b + percent));
+      
+      // Convert back to hex
+      return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+    }
+    
+    // Draw building icon on top of cell
+    function drawBuildingIcon(x, y, z, type) {
+      const pos = gridToScreen(x, y, z);
+      const centerX = pos.x;
+      const centerY = pos.y + GRID_SIZE * ISOMETRIC_FACTOR / 2;
+      
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+      
+      if (type === 'house') {
+        // House roof (triangle)
+        ctx.beginPath();
+        ctx.moveTo(centerX, centerY - GRID_SIZE * 0.3);
+        ctx.lineTo(centerX + GRID_SIZE * 0.3, centerY);
+        ctx.lineTo(centerX - GRID_SIZE * 0.3, centerY);
+        ctx.closePath();
+        ctx.fill();
+        
+        // House door
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+        ctx.fillRect(centerX - GRID_SIZE * 0.05, centerY - GRID_SIZE * 0.08, 
+                    GRID_SIZE * 0.1, GRID_SIZE * 0.16);
+      } 
+      else if (type === 'solar') {
+        // Solar panel
+        ctx.fillRect(centerX - GRID_SIZE * 0.25, centerY - GRID_SIZE * 0.15, 
+                    GRID_SIZE * 0.5, GRID_SIZE * 0.3);
+                    
+        // Panel grid lines
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+        ctx.beginPath();
+        ctx.moveTo(centerX - GRID_SIZE * 0.25, centerY - GRID_SIZE * 0.05);
+        ctx.lineTo(centerX + GRID_SIZE * 0.25, centerY - GRID_SIZE * 0.05);
+        ctx.moveTo(centerX - GRID_SIZE * 0.25, centerY + GRID_SIZE * 0.05);
+        ctx.lineTo(centerX + GRID_SIZE * 0.25, centerY + GRID_SIZE * 0.05);
+        ctx.moveTo(centerX - GRID_SIZE * 0.08, centerY - GRID_SIZE * 0.15);
+        ctx.lineTo(centerX - GRID_SIZE * 0.08, centerY + GRID_SIZE * 0.15);
+        ctx.moveTo(centerX + GRID_SIZE * 0.08, centerY - GRID_SIZE * 0.15);
+        ctx.lineTo(centerX + GRID_SIZE * 0.08, centerY + GRID_SIZE * 0.15);
+        ctx.stroke();
+      } 
+      else if (type === 'wind') {
+        // Wind turbine pole
+        ctx.fillRect(centerX - GRID_SIZE * 0.05, centerY - GRID_SIZE * 0.25, 
+                    GRID_SIZE * 0.1, GRID_SIZE * 0.5);
+        
+        // Turbine blades
+        ctx.beginPath();
+        for (let angle = 0; angle < Math.PI * 2; angle += Math.PI * 2 / 3) {
+          ctx.moveTo(centerX, centerY - GRID_SIZE * 0.25);
+          const bladeX = centerX + Math.cos(angle) * GRID_SIZE * 0.15;
+          const bladeY = (centerY - GRID_SIZE * 0.25) + Math.sin(angle) * GRID_SIZE * 0.15;
+          ctx.lineTo(bladeX, bladeY);
+        }
+        ctx.stroke();
+        
+        // Hub
+        ctx.beginPath();
+        ctx.arc(centerX, centerY - GRID_SIZE * 0.25, GRID_SIZE * 0.05, 0, Math.PI * 2);
+        ctx.fill();
+      } 
+      else if (type === 'battery') {
+        // Battery casing
+        ctx.fillRect(centerX - GRID_SIZE * 0.2, centerY - GRID_SIZE * 0.15, 
+                    GRID_SIZE * 0.4, GRID_SIZE * 0.3);
+                    
+        // Battery terminals
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+        ctx.fillRect(centerX - GRID_SIZE * 0.05, centerY - GRID_SIZE * 0.2, 
+                    GRID_SIZE * 0.1, GRID_SIZE * 0.05);
+                    
+        // Battery indicator
+        ctx.fillStyle = 'rgba(100, 255, 100, 0.7)';
+        ctx.fillRect(centerX - GRID_SIZE * 0.15, centerY - GRID_SIZE * 0.1, 
+                    GRID_SIZE * 0.3, GRID_SIZE * 0.2);
+      } 
+      else if (type === 'bike') {
+        // Bike frame
+        ctx.beginPath();
+        ctx.moveTo(centerX - GRID_SIZE * 0.15, centerY + GRID_SIZE * 0.05);
+        ctx.lineTo(centerX, centerY - GRID_SIZE * 0.05);
+        ctx.lineTo(centerX + GRID_SIZE * 0.1, centerY + GRID_SIZE * 0.05);
+        ctx.stroke();
+        
+        // Wheels
+        ctx.beginPath();
+        ctx.arc(centerX - GRID_SIZE * 0.15, centerY + GRID_SIZE * 0.05, GRID_SIZE * 0.08, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(centerX + GRID_SIZE * 0.1, centerY + GRID_SIZE * 0.05, GRID_SIZE * 0.08, 0, Math.PI * 2);
+        ctx.stroke();
+        
+        // Pedals
+        ctx.beginPath();
+        ctx.arc(centerX, centerY + GRID_SIZE * 0.02, GRID_SIZE * 0.04, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Handlebars
+        ctx.beginPath();
+        ctx.moveTo(centerX - GRID_SIZE * 0.02, centerY - GRID_SIZE * 0.05);
+        ctx.lineTo(centerX - GRID_SIZE * 0.02, centerY - GRID_SIZE * 0.15);
+        ctx.lineTo(centerX - GRID_SIZE * 0.1, centerY - GRID_SIZE * 0.15);
+        ctx.stroke();
+      }
+    }
+    
+    // Draw the map grid and terrain
+    function drawMap() {
+      // We need to draw the map in a specific order for isometric view
+      // Start from the furthest corner and work towards the closest
+      
+      // First build an array of all tiles with their positions
+      let allTiles = [];
+      for (let y = 0; y < MAP_HEIGHT; y++) {
+        for (let x = 0; x < MAP_WIDTH; x++) {
+          const cell = mapData[y][x];
+          
+          // Calculate z-height (for sorting)
+          let zHeight = cell.height;
+          if (cell.building) {
+            zHeight += buildings[cell.building].height;
+          }
+          
+          allTiles.push({
+            x: x,
+            y: y,
+            z: zHeight,
+            cell: cell
+          });
+        }
+      }
+      
+      // Sort tiles by their position - draw from back to front
+      allTiles.sort((a, b) => {
+        // Sort by y, then x (back to front)
+        if (a.y + a.x !== b.y + b.x) {
+          return (a.y + a.x) - (b.y + b.x);
+        }
+        // If on same diagonal, taller objects go behind shorter ones
+        return b.z - a.z;
+      });
+      
+      // Draw each tile in sorted order
+      allTiles.forEach(tile => {
+        const x = tile.x;
+        const y = tile.y;
+        const cell = tile.cell;
+        const terrainHeight = cell.height;
+        
+        // Draw terrain
+        const terrainType = terrainTypes[cell.terrain];
+        drawIsometricTile(x, y, terrainHeight, terrainType.color, terrainType.colorDark);
+        
+        // Draw building if exists
+        if (cell.building) {
+          const building = buildings[cell.building];
+          const buildingHeight = building.height;
+          const darkColor = adjustColorBrightness(building.color, -20);
+          
+          // Draw from the top of the terrain
+          drawIsometricTile(x, y, terrainHeight + buildingHeight, building.color, darkColor);
+          
+          // Draw building icon
+          drawBuildingIcon(x, y, terrainHeight + buildingHeight, cell.building);
+          
+          // If it's a bike and it's interactive, add indicator
+          if (cell.building === 'bike') {
+            const pos = gridToScreen(x, y, terrainHeight + buildingHeight);
+            ctx.fillStyle = '#ff0';
+            ctx.beginPath();
+            ctx.arc(pos.x, pos.y - GRID_SIZE * 0.2, 5, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+      });
+    }
+    
+    // Draw building preview at mouse position
+    function drawBuildingPreview() {
+      if (!selectedBuilding || mouseGridX < 0 || mouseGridY < 0 || 
+          mouseGridX >= MAP_WIDTH || mouseGridY >= MAP_HEIGHT) {
+        return;
+      }
+      
+      // Check if placement is valid
+      const canPlace = canPlaceBuilding(mouseGridX, mouseGridY);
+      const cell = mapData[mouseGridY][mouseGridX];
+      const terrainHeight = cell.height;
+      const buildingHeight = buildings[selectedBuilding].height;
+      
+      // Draw semi-transparent building preview
+      const previewColor = canPlace ? 
+        buildings[selectedBuilding].color + '80' : // 50% opacity
+        '#ff000080'; // Red for invalid
+      
+      const darkColor = adjustColorBrightness(previewColor, -20);
+      drawIsometricTile(mouseGridX, mouseGridY, terrainHeight + buildingHeight, previewColor, darkColor);
+    }
+    
+    // Handle mouse movement
+    function handleMouseMove(event) {
+      // Convert screen coordinates to grid
+      const gridPos = screenToGrid(event.clientX, event.clientY);
+      mouseGridX = gridPos.x;
+      mouseGridY = gridPos.y;
+    }
+    
+    // Handle mouse click
+    function handleClick(event) {
+      // First check if we need to interact with a bike
+      if (!selectedBuilding && !bikeModalActive) {
+        if (mouseGridX >= 0 && mouseGridX < MAP_WIDTH && 
+            mouseGridY >= 0 && mouseGridY < MAP_HEIGHT) {
+          const cell = mapData[mouseGridY][mouseGridX];
+          if (cell.building === 'bike') {
+            activeBikeX = mouseGridX;
+            activeBikeY = mouseGridY;
+            openBikeModal();
+            return;
+          }
+        }
+      }
+      
+      // Otherwise, place a building if one is selected
+      if (selectedBuilding && canPlaceBuilding(mouseGridX, mouseGridY)) {
+        placeBuilding(mouseGridX, mouseGridY, selectedBuilding);
+      }
+    }
+    
+    // Check if a building can be placed
+    function canPlaceBuilding(x, y) {
+      // Check if within map bounds
+      if (x < 0 || x >= MAP_WIDTH || y < 0 || y >= MAP_HEIGHT) {
+        return false;
+      }
+      
+      // Check if cell already has a building
+      if (mapData[y][x].building) {
+        return false;
+      }
+      
+      // Check if terrain is water (can't build on water)
+      if (mapData[y][x].terrain === 'water') {
+        return false;
+      }
+      
+      // Check if player has enough money
+      if (gameState.money < buildings[selectedBuilding].cost) {
+        return false;
+      }
+      
+      return true;
+    }
+    
+    // Place a building on the map
+    function placeBuilding(x, y, type) {
+      // Deduct cost
+      gameState.money -= buildings[type].cost;
+      
+      // Place building in map data
+      mapData[y][x].building = type;
+      
+      // Add to buildings list
+      gameState.buildings.push({
+        type: type,
+        x: x,
+        y: y
+      });
+      
+      // Update energy stats
+      if (type === 'battery') {
+        gameState.energy.max += buildings[type].storage;
+      }
+      
+      // Update displays
+      updateDisplays();
+      updateStatus(`${buildings[type].name} placed!`);
+      
+      // Deselect building
+      selectedBuilding = null;
+    }
+    
+    // Select a building type
+    function selectBuilding(type) {
+      if (gameState.money < buildings[type].cost) {
+        updateStatus(`Not enough money to build ${buildings[type].name}`);
+        return;
+      }
+      
+      selectedBuilding = type;
+      updateStatus(`Selected ${buildings[type].name} - Click on the map to place`);
+    }
+    
+    // Open bike energy generation modal
+    function openBikeModal() {
+      document.getElementById('bike-energy-modal').style.display = 'block';
+      bikeModalActive = true;
+      updateBikeEnergy();
+    }
+    
+    // Close bike modal
+    function closeBikeModal() {
+      document.getElementById('bike-energy-modal').style.display = 'none';
+      bikeModalActive = false;
+      activeBikeX = -1;
+      activeBikeY = -1;
+    }
+    
+    // Update bike energy based on slider value
+    function updateBikeEnergy() {
+      const sliderValue = document.getElementById('bike-slider').value;
+      const energyGenerated = (sliderValue / 10).toFixed(1);
+      document.getElementById('bike-energy-value').textContent = `Energy: ${energyGenerated} kWh`;
+    }
+    
+    // Confirm bike energy generation
+    function confirmBikeEnergy() {
+      const sliderValue = document.getElementById('bike-slider').value;
+      const energyGenerated = parseFloat((sliderValue / 10).toFixed(1));
+      
+      // Add energy to the system
+      gameState.energy.current += energyGenerated;
+      
+      // Cap energy at max
+      if (gameState.energy.current > gameState.energy.max) {
+        gameState.energy.current = gameState.energy.max;
+      }
+      
+      // Update UI
+      updateDisplays();
+      updateStatus(`Generated ${energyGenerated} kWh by pedaling!`);
+      
+      // Close modal
+      closeBikeModal();
+    }
+    
+    // Simulate a day
+    function simulateDay() {
+      // Calculate production and consumption
+      let production = 0;
+      let consumption = 0;
+      let income = 0;
+      
+      // Process each building
+      gameState.buildings.forEach(building => {
+        const buildingType = building.type;
+        const buildingData = buildings[buildingType];
+        
+        // Add energy production/consumption
+        if (buildingData.energy > 0) {
+          production += buildingData.energy;
+        } else if (buildingData.energy < 0) {
+          consumption += Math.abs(buildingData.energy);
+        }
+        
+        // Add income
+        if (buildingData.income) {
+          income += buildingData.income;
+        }
+      });
+      
+      // Add weather variation (random factor between 0.8 and 1.2)
+      const weatherFactor = 0.8 + Math.random() * 0.4;
+      production *= weatherFactor;
+      
+      // Weather description
+      let weatherDesc = "Clear skies";
+      if (weatherFactor < 0.9) {
+        weatherDesc = "Cloudy day";
+      } else if (weatherFactor > 1.1) {
+        weatherDesc = "Exceptionally sunny";
+      }
+      
+      // Update energy
+      gameState.energy.current += production - consumption;
+      
+      // Cap energy at max
+      if (gameState.energy.current > gameState.energy.max) {
+        gameState.energy.current = gameState.energy.max;
+      }
+      
+      // Check for energy deficit
+      let energyDeficit = false;
+      if (gameState.energy.current < 0) {
+        energyDeficit = true;
+        gameState.energy.current = 0;
+      }
+      
+      // Update money and day
+      gameState.money += income;
+      gameState.day++;
+      
+      // Update displays
+      updateDisplays();
+      
+      // Status message
+      let message = `Day ${gameState.day}: ${weatherDesc}. `;
+      message += `Generated ${production.toFixed(1)} energy, used ${consumption.toFixed(1)}. `;
+      message += `Income: ${income}`;
+      
+      if (energyDeficit) {
+        message += " - WARNING: Energy depleted!";
+      }
+      
+      updateStatus(message);
+    }
+    
+    // Reset the game
+    function resetGame() {
+      // Reset game state
+      gameState = {
+        money: 10000,
+        energy: {
+          current: 100,
+          max: 100,
+          production: 0,
+          consumption: 0
+        },
+        day: 1,
+        buildings: []
+      };
+      
+      // Clear all buildings from map
+      for (let y = 0; y < MAP_HEIGHT; y++) {
+        for (let x = 0; x < MAP_WIDTH; x++) {
+          if (mapData[y][x].building) {
+            mapData[y][x].building = null;
+          }
+        }
+      }
+      
+      // Update displays
+      updateDisplays();
+      updateStatus("Game reset. Start building your eco-home!");
+      
+      // Deselect any selected building
+      selectedBuilding = null;
+    }
+    
+    // Update UI displays
+    function updateDisplays() {
+      document.getElementById('money-display').textContent = ' + gameState.money.toLocaleString();
+      document.getElementById('energy-display').textContent = 
+        `${gameState.energy.current.toFixed(1)}/${gameState.energy.max}`;
+      document.getElementById('day-display').textContent = gameState.day;
+      
+      // Color the energy display based on level
+      const energyElement = document.getElementById('energy-display');
+      const energyPercentage = (gameState.energy.current / gameState.energy.max) * 100;
+      
+      if (energyPercentage < 20) {
+        energyElement.style.color = 'red';
+      } else if (energyPercentage < 50) {
+        energyElement.style.color = 'orange';
+      } else {
+        energyElement.style.color = 'green';
+      }
+    }
+    
+    // Update status message
+    function updateStatus(message) {
+      document.getElementById('status-message').textContent = message;
+    }
+    
+    // Start the game when the page loads
+    window.onload = init;
+  </script>
+</body>
+</html>
